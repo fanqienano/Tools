@@ -1,13 +1,49 @@
 #!/usr/bin/python
 #coding=UTF-8
 
+from multiprocessing import Process
+from multiprocessing import JoinableQueue
+from threading import Thread
+from threading import Event
+from threading import Timer
 import time
 import random
 from collections import OrderedDict
+import inspect
+import ctypes
+import signal
+
+from TaskManager import TaskManager
 
 words = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
 
-class TaskManager(object):
+class TimeoutException(Exception):
+	pass
+
+class TaskThread(Thread):
+	def __init__(self, func, *args, **kwargs):
+		super(TaskThread, self).__init__()
+		self.func = func
+		self.args = args
+		self.callback = kwargs.get('callback', self.callback)
+		self.excTimeout = kwargs.get('exc_timeout', None)
+		self.timeout = kwargs.get('timeout', None)
+
+	def run(self):
+		if self.excTimeout is not None:
+			timeoutThread = Timer(self.excTimeout, self.exceptionHandler, (self.ident,))
+			timeoutThread.start()
+		self.func(*self.args)
+		self.callback(self)
+
+	def exceptionHandler(self, tid):
+		self.callback(self)
+		ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(tid), ctypes.py_object(TimeoutException))
+
+	def callback(self, t):
+		pass
+
+class ThreadManager(TaskManager):
 	def __init__(self, *args, **kwargs):
 		self.waitQueue = OrderedDict()
 		self.cancel = False
