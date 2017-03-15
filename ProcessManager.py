@@ -18,18 +18,20 @@ class TaskProcess(Process):
 		self.func = func
 		self.args = args
 		self.callback = kwargs.get('callback', self.callback)
-		self.isFork = kwargs.get('fork', False)
 		self.timeout = kwargs.get('timeout', 0)
 
-	def start(self):
-		if self.isFork:
-			super(TaskProcess, self).start()
-
 	def run(self):
-		signal.signal(signal.SIGALRM, self.exceptionHandler)
-		signal.alarm(self.timeout)
-		self.func(*self.args)
+		error = None
+		try:
+			signal.signal(signal.SIGALRM, self.exceptionHandler)
+			signal.alarm(self.timeout)
+			self.func(*self.args)
+			signal.alarm(0)
+		except Exception, error:
+			pass
 		self.callback(self)
+		if error is not None:
+			raise error
 
 	def exceptionHandler(self, signum, frame):
 		raise AssertionError
@@ -38,11 +40,14 @@ class TaskProcess(Process):
 		pass
 
 class ProcessManager(TaskManager):
-	def __init__(self, *args, **kwargs):
-		self.waitQueue = OrderedDict()
-		self.cancel = False
-		self.num = 5
-		if 'num' in kwargs:
-			self.num = kwargs['num']
-		self.threadQueue = {}
-		self.isRun = False
+
+	def startTask(self):
+		while len(self.workQueue) < self.num and len(self.waitQueue) > 0:
+			item = self.waitQueue.popitem(0)
+			print len(self.waitQueue), len(self.workQueue), item
+			daemonic = item[1][2].get('daemonic', False)
+			t = TaskProcess(item[1][0], *item[1][1], **item[1][2])
+			self.workQueue[t.name] = t
+			t.name = item[0]
+			t.daemon = daemonic
+			t.start()

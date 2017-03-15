@@ -14,12 +14,12 @@ class TaskManager(object):
 		self.num = 5
 		if 'num' in kwargs:
 			self.num = kwargs['num']
-		self.threadQueue = {}
+		self.workQueue = {}
 		self.isRun = False
 
 	def callback(self, t):
 		try:
-			del self.threadQueue[t.name]
+			del self.workQueue[t.name]
 		except KeyError:
 			pass
 		if self.isRun:
@@ -45,19 +45,19 @@ class TaskManager(object):
 		'''
 		name = kwargs.get('name', None)
 		if name is None:
-			while len(self.threadQueue) > 0:
-				t = self.threadQueue.values()[0]
+			while len(self.workQueue) > 0:
+				t = self.workQueue.values()[0]
 				t.join(t.timeout)
 				self.callback(t)
 		else:
 			while True:
 				try:
-					t = self.threadQueue[name]
+					t = self.workQueue[name]
 					t.join(t.timeout)
 					self.callback(t)
 					break
 				except KeyError:
-					if name in self.waitQueue.keys() + self.threadQueue.keys():
+					if name in self.waitQueue.keys() + self.workQueue.keys():
 						continue
 					else:
 						break
@@ -96,11 +96,14 @@ class TaskManager(object):
 		return name
 
 	def startTask(self):
-		while len(self.threadQueue) <= self.num and len(self.waitQueue) > 0:
-			item = self.waitQueue.popitem(0)
-			daemonic = item[1][2].get('daemonic', False)
-			t = TaskThread(item[1][0], *item[1][1], **item[1][2])
-			self.threadQueue[t.name] = t
-			t.name = item[0]
-			t.setDaemon(daemonic)
-			t.start()
+		pass
+
+	# def startTask(self):
+	# 	while len(self.workQueue) <= self.num and len(self.waitQueue) > 0:
+	# 		item = self.waitQueue.popitem(0)
+	# 		daemonic = item[1][2].get('daemonic', False)
+	# 		t = TaskThread(item[1][0], *item[1][1], **item[1][2])
+	# 		self.workQueue[t.name] = t
+	# 		t.name = item[0]
+	# 		t.setDaemon(daemonic)
+	# 		t.start()
