@@ -6,14 +6,13 @@ from multiprocessing import JoinableQueue
 from threading import Thread
 from threading import Event
 from threading import Timer
+from threading import RLock
 import time
 import random
 from collections import OrderedDict
 import inspect
 import ctypes
 import signal
-
-from TaskManager import TaskManager
 
 words = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
 
@@ -40,7 +39,7 @@ class TaskThread(Thread):
 			ret = self.func(*self.args)
 		except Exception, error:
 			pass
-		self.finish(self)
+		self.finish(self.name)
 		self.callback(ret)
 		if error is not None:
 			raise error
@@ -49,7 +48,7 @@ class TaskThread(Thread):
 		pass
 
 	def exceptionHandler(self, tid):
-		self.finish(self)
+		self.finish(self.name)
 		ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(tid), ctypes.py_object(TimeoutException))
 
 class ThreadManager(object):
@@ -62,12 +61,14 @@ class ThreadManager(object):
 			self.num = kwargs['num']
 		self.workQueue = {}
 		self.isRun = False
+		self.lock = RLock()
 
-	def finish(self, t):
+	def finish(self, name):
 		try:
-			del self.workQueue[t.name]
+			del self.workQueue[name]
 		except KeyError:
 			pass
+		print name
 		if self.isRun:
 			self.startTask()
 
@@ -94,13 +95,13 @@ class ThreadManager(object):
 			while len(self.workQueue) > 0:
 				t = self.workQueue.values()[0]
 				t.join(t.timeout)
-				self.finish(t)
+				self.finish(t.name)
 		else:
 			while True:
 				try:
 					t = self.workQueue[name]
 					t.join(t.timeout)
-					self.finish(t)
+					self.finish(t.name)
 					break
 				except KeyError:
 					if name in self.waitQueue.keys() + self.workQueue.keys():
@@ -133,7 +134,7 @@ class ThreadManager(object):
 		return task name.
 		'''
 		name = kwargs.get('name', None)
-		kwargs['finish'] = self.finish
+		# kwargs['finish'] = self.finish
 		if name is None:
 			name = ''.join(random.sample(words, 5)) + '_' + str(time.time())
 		self.waitQueue[name] = (func, args, kwargs)
@@ -142,11 +143,14 @@ class ThreadManager(object):
 		return name
 
 	def startTask(self):
+		self.lock.acquire()
 		while len(self.workQueue) < self.num and len(self.waitQueue) > 0:
+			# print len(self.waitQueue)
 			item = self.waitQueue.popitem(0)
 			daemonic = item[1][2].get('daemonic', False)
 			t = TaskThread(item[1][0], self.finish, *item[1][1], **item[1][2])
 			t.name = item[0]
-			self.workQueue[t.name] = t
 			t.setDaemon(daemonic)
+			self.workQueue[t.name] = t
 			t.start()
+		self.lock.release()

@@ -11,9 +11,10 @@ def test(t):
 	for i in range(5):
 		# print t
 		time.sleep(1)
-		print 'over'
+		# print 'over'
 
-for i in range(10):
+for i in range(30):
 	pm.addTask(test, args = (i,))
 
 pm.start()
+# pm.wait()

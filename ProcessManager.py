@@ -4,14 +4,14 @@
 from multiprocessing import Process
 from multiprocessing import Pipe
 from multiprocessing import Event
+from multiprocessing import Lock
+import threading
 import time
 import random
 from collections import OrderedDict
 import inspect
 import ctypes
 import signal
-
-from TaskManager import TaskManager
 
 words = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
 
@@ -60,20 +60,19 @@ class ProcessManager(object):
 			self.num = kwargs['num']
 		self.workQueue = {}
 		self.isRun = False
+		self.lock = Lock()
+		t = threading.Thread(target = self.__finishRecv__, args = ())
+		t.setDaemon(False)
+		t.start()
 
-	def finishRecv(self):
+	def __finishRecv__(self):
 		while True:
 			msg = self.parentConn.recv()
-			try:
-				del self.workQueue[msg['name']]
-			except KeyError:
-				pass
-			if self.isRun:
-				self.startTask()
+			self.finish(msg['name'])
 
-	def finish(self, t):
+	def finish(self, name):
 		try:
-			del self.workQueue[t.name]
+			del self.workQueue[name]
 		except KeyError:
 			pass
 		if self.isRun:
@@ -102,13 +101,13 @@ class ProcessManager(object):
 			while len(self.workQueue) > 0:
 				t = self.workQueue.values()[0]
 				t.join(t.timeout)
-				self.finish(t)
+				self.finish(t.name)
 		else:
 			while True:
 				try:
 					t = self.workQueue[name]
 					t.join(t.timeout)
-					self.finish(t)
+					self.finish(t.name)
 					break
 				except KeyError:
 					if name in self.waitQueue.keys() + self.workQueue.keys():
@@ -149,12 +148,14 @@ class ProcessManager(object):
 		return name
 
 	def startTask(self):
+		self.lock.acquire()
 		while len(self.workQueue) < self.num and len(self.waitQueue) > 0:
 			item = self.waitQueue.popitem(0)
-			print len(self.waitQueue), len(self.workQueue), item
 			daemonic = item[1][2].get('daemonic', False)
 			t = TaskProcess(item[1][0], self.childConn, *item[1][1], **item[1][2])
-			self.workQueue[t.name] = t
 			t.name = item[0]
 			t.daemon = daemonic
+			self.workQueue[t.name] = t
 			t.start()
+			print len(self.waitQueue), len(self.workQueue)
+		self.lock.release()
