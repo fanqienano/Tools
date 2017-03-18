@@ -20,7 +20,8 @@ class TaskProcess(Process):
 		super(TaskProcess, self).__init__()
 		self.func = func
 		self.args = args
-		self.timeout = kwargs.get('timeout', 0)
+		self.timeout = kwargs.get('timeout', None)
+		self.excTimeout = kwargs.get('exc_timeout', 0)
 		self.childConn = childConn
 		self.callback = kwargs.get('callback', self.callback)
 
@@ -29,7 +30,7 @@ class TaskProcess(Process):
 		ret = None
 		try:
 			signal.signal(signal.SIGALRM, self.exceptionHandler)
-			signal.alarm(self.timeout)
+			signal.alarm(self.excTimeout)
 			ret = self.func(*self.args)
 			signal.alarm(0)
 		except Exception, error:
@@ -60,13 +61,16 @@ class ProcessManager(object):
 			self.num = kwargs['num']
 		self.workQueue = {}
 		self.isRun = False
+		self.isFinish = False
 		self.lock = Lock()
+
+	def startRecv(self):
 		t = threading.Thread(target = self.__finishRecv__, args = ())
-		t.setDaemon(False)
+		# t.setDaemon(False)
 		t.start()
 
 	def __finishRecv__(self):
-		while True:
+		while not self.isFinish or len(self.waitQueue) + len(self.workQueue) > 0:
 			msg = self.parentConn.recv()
 			self.finish(msg['name'])
 
@@ -83,7 +87,11 @@ class ProcessManager(object):
 		Start all tasks.
 		'''
 		self.isRun = True
+		self.startRecv()
 		self.startTask()
+
+	def close(self):
+		self.isFinish = True
 
 	def hold(self):
 		'''
@@ -114,6 +122,26 @@ class ProcessManager(object):
 						continue
 					else:
 						break
+
+	def terminate(self, **kwargs):
+		name = kwargs.get('name', None)
+		if name is None:
+			self.waitQueue.clear()
+			for t in self.workQueue.values():
+				try:
+					t.terminate()
+					t.join()
+				except:
+					pass
+			return True
+		else:
+			try:
+				self.workQueue[name].terminate()
+				self.workQueue[name].join()
+				self.finish(name)
+				return True
+			except:
+				return False
 
 	def dismiss(self, **kwargs):
 		'''
