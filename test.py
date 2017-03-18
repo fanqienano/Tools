@@ -3,15 +3,14 @@
 
 import time
 
-from ProcessManager import ProcessManager
+from TaskManager import ProcessManager
 
 pm = ProcessManager()
 
 def test(t):
-	for i in range(3):
-		# print t
-		time.sleep(1)
-		# print 'over'
+	print t
+	time.sleep(3)
+	print 'over'
 
 for i in range(30):
 	pm.addTask(test, args = (i,))

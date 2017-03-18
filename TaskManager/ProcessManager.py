@@ -1,54 +1,56 @@
 #!/usr/bin/python
 #coding=UTF-8
 
-from threading import Thread
-from threading import Timer
-from threading import RLock
+from multiprocessing import Process
+from multiprocessing import Pipe
+from multiprocessing import Lock
+import threading
 import time
 import random
 from collections import OrderedDict
-import ctypes
+import signal
 
 words = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
 
-class TimeoutException(Exception):
-	pass
-
-class TaskThread(Thread):
-	def __init__(self, func, finish, *args, **kwargs):
-		super(TaskThread, self).__init__()
+class TaskProcess(Process):
+	def __init__(self, func, childConn, *args, **kwargs):
+		super(TaskProcess, self).__init__()
 		self.func = func
 		self.args = args
-		self.callback = kwargs.get('callback', self.callback)
-		self.finish = finish
-		self.excTimeout = kwargs.get('exc_timeout', None)
 		self.timeout = kwargs.get('timeout', None)
+		self.excTimeout = kwargs.get('exc_timeout', 0)
+		self.childConn = childConn
+		self.callback = kwargs.get('callback', self.callback)
 
 	def run(self):
 		error = None
 		ret = None
-		if self.excTimeout is not None:
-			timeoutThread = Timer(self.excTimeout, self.exceptionHandler, (self.ident,))
-			timeoutThread.start()
 		try:
+			signal.signal(signal.SIGALRM, self.exceptionHandler)
+			signal.alarm(self.excTimeout)
 			ret = self.func(*self.args)
+			signal.alarm(0)
 		except Exception, error:
 			pass
-		self.finish(self.name)
+		self.finish({'name': self.name})
 		self.callback(ret)
 		if error is not None:
 			raise error
 
+	def exceptionHandler(self, signum, frame):
+		raise AssertionError
+
 	def callback(self, *args, **kwargs):
 		pass
 
-	def exceptionHandler(self, tid):
-		self.finish(self.name)
-		ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(tid), ctypes.py_object(TimeoutException))
+	def finish(self, msg):
+		self.childConn.send(msg)
 
-class ThreadManager(object):
+# class ProcessManager(TaskManager):
 
+class ProcessManager(object):
 	def __init__(self, *args, **kwargs):
+		self.parentConn, self.childConn = Pipe()
 		self.waitQueue = OrderedDict()
 		self.cancel = False
 		self.num = 5
@@ -56,14 +58,24 @@ class ThreadManager(object):
 			self.num = kwargs['num']
 		self.workQueue = {}
 		self.isRun = False
-		self.lock = RLock()
+		self.isFinish = False
+		self.lock = Lock()
+
+	def startRecv(self):
+		t = threading.Thread(target = self.__finishRecv__, args = ())
+		# t.setDaemon(False)
+		t.start()
+
+	def __finishRecv__(self):
+		while not self.isFinish or len(self.waitQueue) + len(self.workQueue) > 0:
+			msg = self.parentConn.recv()
+			self.finish(msg['name'])
 
 	def finish(self, name):
 		try:
 			del self.workQueue[name]
 		except KeyError:
 			pass
-		print name
 		if self.isRun:
 			self.startTask()
 
@@ -72,7 +84,11 @@ class ThreadManager(object):
 		Start all tasks.
 		'''
 		self.isRun = True
+		self.startRecv()
 		self.startTask()
+
+	def close(self):
+		self.isFinish = True
 
 	def hold(self):
 		'''
@@ -104,6 +120,26 @@ class ThreadManager(object):
 					else:
 						break
 
+	def terminate(self, **kwargs):
+		name = kwargs.get('name', None)
+		if name is None:
+			self.waitQueue.clear()
+			for t in self.workQueue.values():
+				try:
+					t.terminate()
+					t.join()
+				except:
+					pass
+			return True
+		else:
+			try:
+				self.workQueue[name].terminate()
+				self.workQueue[name].join()
+				self.finish(name)
+				return True
+			except:
+				return False
+
 	def dismiss(self, **kwargs):
 		'''
 		Dismiss all the not starting tasks.
@@ -129,7 +165,6 @@ class ThreadManager(object):
 		return task name.
 		'''
 		name = kwargs.get('name', None)
-		# kwargs['finish'] = self.finish
 		if name is None:
 			name = ''.join(random.sample(words, 5)) + '_' + str(time.time())
 		self.waitQueue[name] = (func, args, kwargs)
@@ -140,12 +175,11 @@ class ThreadManager(object):
 	def startTask(self):
 		self.lock.acquire()
 		while len(self.workQueue) < self.num and len(self.waitQueue) > 0:
-			# print len(self.waitQueue)
 			item = self.waitQueue.popitem(0)
 			daemonic = item[1][2].get('daemonic', False)
-			t = TaskThread(item[1][0], self.finish, *item[1][1], **item[1][2])
+			t = TaskProcess(item[1][0], self.childConn, *item[1][1], **item[1][2])
 			t.name = item[0]
-			t.setDaemon(daemonic)
+			t.daemon = daemonic
 			self.workQueue[t.name] = t
 			t.start()
 		self.lock.release()
