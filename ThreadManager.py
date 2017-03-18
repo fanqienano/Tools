@@ -1,18 +1,13 @@
 #!/usr/bin/python
 #coding=UTF-8
 
-from multiprocessing import Process
-from multiprocessing import JoinableQueue
 from threading import Thread
-from threading import Event
 from threading import Timer
 from threading import RLock
 import time
 import random
 from collections import OrderedDict
-import inspect
 import ctypes
-import signal
 
 words = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
 

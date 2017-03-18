@@ -3,14 +3,11 @@
 
 from multiprocessing import Process
 from multiprocessing import Pipe
-from multiprocessing import Event
 from multiprocessing import Lock
 import threading
 import time
 import random
 from collections import OrderedDict
-import inspect
-import ctypes
 import signal
 
 words = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
