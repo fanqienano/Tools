@@ -88,9 +88,10 @@ class ThreadManager(object):
 		name = kwargs.get('name', None)
 		if name is None:
 			while len(self.workQueue) > 0:
-				t = self.workQueue.values()[0]
-				t.join(t.timeout)
-				self.finish(t.name)
+				for t in self.workQueue.values():
+					t.join(t.timeout)
+					self.finish(t.name)
+					break
 		else:
 			while True:
 				try:
