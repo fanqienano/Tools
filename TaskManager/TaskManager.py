@@ -2,6 +2,38 @@
 #coding=UTF-8
 
 from collections import OrderedDict
+from threading import RLock
+from multiprocessing import Lock
+
+tLock = RLock()
+
+pLock = Lock()
+
+def threadLock(func):
+	def _Lock(*args, **kwargs):
+		tLock.acquire()
+		try:
+			ret = func(*args, **kwargs)
+		except Exception, e:
+			ret = None
+			tLock.release()
+			raise e
+		tLock.release()
+		return ret
+	return _Lock
+
+def processLock(func):
+	def _Lock(*args, **kwargs):
+		pLock.acquire()
+		try:
+			ret = func(*args, **kwargs)
+		except Exception, e:
+			ret = None
+			pLock.release()
+			raise e
+		pLock.release()
+		return ret
+	return _Lock
 
 class TaskManager(object):
 

@@ -18,6 +18,10 @@ for i in range(30):
 
 pm.start()
 pm.close()
+time.sleep(1)
+pm.pause()
+print 222333
+pm.resume()
 pm.wait()
 print 111
 

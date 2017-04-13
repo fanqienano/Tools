@@ -3,7 +3,6 @@
 
 from multiprocessing import Process
 from multiprocessing import Pipe
-from multiprocessing import Lock
 import threading
 import time
 import random
@@ -11,6 +10,7 @@ from collections import OrderedDict
 import signal
 
 from TaskManager import TaskManager
+from TaskManager import processLock
 
 from TaskException import CloseException
 from TaskException import TaskException
@@ -71,7 +71,6 @@ class ProcessManager(TaskManager):
 		self._workQueue = {}
 		self._isRun = False
 		self._isFinish = False
-		self._lock = Lock()
 
 	def _startRecv(self):
 		t = threading.Thread(target = self.__finishRecv__, args = ())
@@ -141,8 +140,8 @@ class ProcessManager(TaskManager):
 			self._startTask()
 		return name
 
+	@processLock
 	def _startTask(self):
-		# self._lock.acquire()
 		while len(self._workQueue) < self._num and len(self._waitQueue) > 0:
 			itemName, itemData = self._waitQueue.popitem(0)
 			t = TaskProcess(func = itemData['func'], childConn = self._childConn, timeout = itemData['timeout'], exc_timeout = itemData['exc_timeout'], callback = itemData['callback'], args = itemData['args'])
@@ -150,4 +149,3 @@ class ProcessManager(TaskManager):
 			t.daemon = itemData['daemonic']
 			self._workQueue[t.name] = t
 			t.start()
-		# self._lock.release()

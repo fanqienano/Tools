@@ -3,13 +3,13 @@
 
 from threading import Thread
 from threading import Timer
-from threading import RLock
 import time
 import random
 from collections import OrderedDict
 import ctypes
 
 from TaskManager import TaskManager
+from TaskManager import threadLock
 
 from TaskException import TimeoutException
 from TaskException import CloseException
@@ -66,7 +66,6 @@ class ThreadManager(TaskManager):
 		self._cancel = False
 		self._workQueue = {}
 		self._isRun = False
-		self._lock = RLock()
 		self._num = num
 		self._isFinish = False
 
@@ -104,8 +103,8 @@ class ThreadManager(TaskManager):
 			self._startTask()
 		return name
 
+	@threadLock
 	def _startTask(self):
-		# self._lock.acquire()
 		while len(self._workQueue) < self._num and len(self._waitQueue) > 0:
 			itemName, itemData = self._waitQueue.popitem(0)
 			t = TaskThread(func = itemData['func'], finish = self._finish, timeout = itemData['timeout'], exc_timeout = itemData['exc_timeout'], callback = itemData['callback'], args = itemData['args'])
@@ -113,4 +112,3 @@ class ThreadManager(TaskManager):
 			t.setDaemon(itemData['daemonic'])
 			self._workQueue[t.name] = t
 			t.start()
-		# self._lock.release()
