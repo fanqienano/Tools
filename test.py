@@ -3,9 +3,10 @@
 
 import time
 
-from TaskManager import ProcessManager
+from TaskManager import ThreadManager
 
-pm = ProcessManager()
+pm = ThreadManager()
+print pm
 
 def test(t):
 	print t
@@ -19,3 +20,11 @@ pm.start()
 pm.close()
 pm.wait()
 print 111
+
+# # print dir(pm)
+
+# def test(args = ()):
+# 	print args
+
+# test((11,22))
+# test()

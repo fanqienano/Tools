@@ -10,17 +10,31 @@ import random
 from collections import OrderedDict
 import signal
 
+from TaskManager import TaskManager
+
+from TaskException import CloseException
+from TaskException import TaskException
+
 words = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
 
 class TaskProcess(Process):
-	def __init__(self, func, childConn, *args, **kwargs):
+	'''
+	任务进程
+	func: 任务方法
+	childConn: 子链接
+	timeout: join的超时时间，默认None不限时
+	exc_timeout: func执行的超时时间
+	callback: 回调方法，传入func执行返回值
+	args: func的参数
+	'''
+	def __init__(self, func, childConn, timeout = None, exc_timeout = 0, callback = None, args = ()):
 		super(TaskProcess, self).__init__()
 		self.func = func
 		self.args = args
-		self.timeout = kwargs.get('timeout', None)
-		self.excTimeout = kwargs.get('exc_timeout', 0)
+		self.timeout = timeout
+		self.excTimeout = exc_timeout
 		self.childConn = childConn
-		self.callback = kwargs.get('callback', self.callback)
+		self.callback = callback
 
 	def run(self):
 		error = None
@@ -33,99 +47,65 @@ class TaskProcess(Process):
 		except Exception, error:
 			pass
 		self.finish({'name': self.name})
-		self.callback(ret)
+		if self.callback:
+			self.callback(ret)
 		if error is not None:
 			raise error
 
 	def exceptionHandler(self, signum, frame):
 		raise AssertionError
 
-	def callback(self, *args, **kwargs):
-		pass
-
 	def finish(self, msg):
 		self.childConn.send(msg)
 
-# class ProcessManager(TaskManager):
+class ProcessManager(TaskManager):
+	'''
+	进程管理
+	num: 同时任务数，默认为5
+	'''
+	def __init__(self, num = 5):
+		self._parentConn, self._childConn = Pipe()
+		self._waitQueue = OrderedDict()
+		self._cancel = False
+		self._num = num
+		self._workQueue = {}
+		self._isRun = False
+		self._isFinish = False
+		self._lock = Lock()
 
-class ProcessManager(object):
-	def __init__(self, *args, **kwargs):
-		self.parentConn, self.childConn = Pipe()
-		self.waitQueue = OrderedDict()
-		self.cancel = False
-		self.num = 5
-		if 'num' in kwargs:
-			self.num = kwargs['num']
-		self.workQueue = {}
-		self.isRun = False
-		self.isFinish = False
-		self.lock = Lock()
-
-	def startRecv(self):
+	def _startRecv(self):
 		t = threading.Thread(target = self.__finishRecv__, args = ())
-		# t.setDaemon(False)
 		t.start()
 
 	def __finishRecv__(self):
-		while not self.isFinish or len(self.waitQueue) + len(self.workQueue) > 0:
-			msg = self.parentConn.recv()
-			self.finish(msg['name'])
-
-	def finish(self, name):
-		try:
-			del self.workQueue[name]
-		except KeyError:
-			pass
-		if self.isRun:
-			self.startTask()
+		while not self._isFinish or len(self._waitQueue) + len(self._workQueue) > 0:
+			msg = self._parentConn.recv()
+			self._finish(msg['name'])
 
 	def start(self):
 		'''
-		Start all tasks.
+		开始服务，可无任务状态开始
 		'''
-		self.isRun = True
-		self.startRecv()
-		self.startTask()
+		self._isRun = True
+		self._isFinish = False
+		self._startRecv()
+		self._startTask()
 
-	def close(self):
-		self.isFinish = True
+	def resume(self):
+		'''
+		恢复服务
+		'''
+		self._isRun = True
+		self._startTask()
 
-	def hold(self):
+	def terminate(self, name = None):
 		'''
-		No new tasks are pending.
+		终止任务
+		name: 目标任务id
 		'''
-		self.isRun = False
-
-	def wait(self, **kwargs):
-		'''
-		Waiting for all tasks.
-		name: Waiting for the name of the task.
-		'''
-		name = kwargs.get('name', None)
 		if name is None:
-			while len(self.workQueue) > 0:
-				for t in self.workQueue.values():
-					t.join(t.timeout)
-					self.finish(t.name)
-					break
-		else:
-			while True:
-				try:
-					t = self.workQueue[name]
-					t.join(t.timeout)
-					self.finish(t.name)
-					break
-				except KeyError:
-					if name in self.waitQueue.keys() + self.workQueue.keys():
-						continue
-					else:
-						break
-
-	def terminate(self, **kwargs):
-		name = kwargs.get('name', None)
-		if name is None:
-			self.waitQueue.clear()
-			for t in self.workQueue.values():
+			self._waitQueue.clear()
+			for t in self._workQueue.values():
 				try:
 					t.terminate()
 					t.join()
@@ -134,53 +114,40 @@ class ProcessManager(object):
 			return True
 		else:
 			try:
-				self.workQueue[name].terminate()
-				self.workQueue[name].join()
-				self.finish(name)
+				self._workQueue[name].terminate()
+				self._workQueue[name].join()
+				self._finish(name)
 				return True
 			except:
 				return False
 
-	def dismiss(self, **kwargs):
+	def addTask(self, func, name = None, timeout = None, exc_timeout = 0, callback = None, daemonic = False, args = ()):
 		'''
-		Dismiss all the not starting tasks.
-		name: Dismiss for the name of the task.
-		return Dismiss result.
+		添加任务
+		func: 任务方法
+		name: 任务id，默认则随机生成
+		timeout: join超时时间
+		exc_timeout: 任务执行超时时间
+		callback: 回调方法
+		daemonic: 是否守护进程
+		args: 任务方法所需参数
 		'''
-		name = kwargs.get('name', None)
-		if name is None:
-			self.waitQueue.clear()
-			return True
-		else:
-			try:
-				del self.waitQueue[name]
-				return True
-			except KeyError:
-				return False
-			return False
-
-	def addTask(self, func, args = (), **kwargs):
-		'''
-		add one task to queue.
-		kwargs: callback; timeout; exc_timeout; daemonic;
-		return task name.
-		'''
-		name = kwargs.get('name', None)
+		if self._isFinish:
+			raise CloseException()
 		if name is None:
 			name = ''.join(random.sample(words, 5)) + '_' + str(time.time())
-		self.waitQueue[name] = (func, args, kwargs)
-		if self.isRun:
-			self.startTask()
+		self._waitQueue[name] = {'func': func, 'timeout': timeout, 'exc_timeout': exc_timeout, 'callback': callback, 'daemonic': daemonic, 'args': args}
+		if self._isRun:
+			self._startTask()
 		return name
 
-	def startTask(self):
-		self.lock.acquire()
-		while len(self.workQueue) < self.num and len(self.waitQueue) > 0:
-			item = self.waitQueue.popitem(0)
-			daemonic = item[1][2].get('daemonic', False)
-			t = TaskProcess(item[1][0], self.childConn, *item[1][1], **item[1][2])
-			t.name = item[0]
-			t.daemon = daemonic
-			self.workQueue[t.name] = t
+	def _startTask(self):
+		# self._lock.acquire()
+		while len(self._workQueue) < self._num and len(self._waitQueue) > 0:
+			itemName, itemData = self._waitQueue.popitem(0)
+			t = TaskProcess(func = itemData['func'], childConn = self._childConn, timeout = itemData['timeout'], exc_timeout = itemData['exc_timeout'], callback = itemData['callback'], args = itemData['args'])
+			t.name = itemName
+			t.daemon = itemData['daemonic']
+			self._workQueue[t.name] = t
 			t.start()
-		self.lock.release()
+		# self._lock.release()

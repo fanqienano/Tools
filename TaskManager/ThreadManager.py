@@ -9,25 +9,37 @@ import random
 from collections import OrderedDict
 import ctypes
 
+from TaskManager import TaskManager
+
+from TaskException import TimeoutException
+from TaskException import CloseException
+from TaskException import TaskException
+
 words = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
 
-class TimeoutException(Exception):
-	pass
-
 class TaskThread(Thread):
-	def __init__(self, func, finish, *args, **kwargs):
+	'''
+	任务进程
+	func: 任务方法
+	childConn: 子链接
+	timeout: join的超时时间，默认None不限时
+	exc_timeout: func执行的超时时间
+	callback: 回调方法，传入func执行返回值
+	args: func的参数
+	'''
+	def __init__(self, func, finish, timeout = None, exc_timeout = 0, callback = None, args = ()):
 		super(TaskThread, self).__init__()
 		self.func = func
 		self.args = args
-		self.callback = kwargs.get('callback', self.callback)
+		self.callback = callback
 		self.finish = finish
-		self.excTimeout = kwargs.get('exc_timeout', None)
-		self.timeout = kwargs.get('timeout', None)
+		self.excTimeout = exc_timeout
+		self.timeout = timeout
 
 	def run(self):
 		error = None
 		ret = None
-		if self.excTimeout is not None:
+		if self.excTimeout > 0:
 			timeoutThread = Timer(self.excTimeout, self.exceptionHandler, (self.ident,))
 			timeoutThread.start()
 		try:
@@ -35,117 +47,70 @@ class TaskThread(Thread):
 		except Exception, error:
 			pass
 		self.finish(self.name)
-		self.callback(ret)
+		if self.callback:
+			self.callback(ret)
 		if error is not None:
 			raise error
-
-	def callback(self, *args, **kwargs):
-		pass
 
 	def exceptionHandler(self, tid):
 		self.finish(self.name)
 		ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(tid), ctypes.py_object(TimeoutException))
 
-class ThreadManager(object):
-
-	def __init__(self, *args, **kwargs):
-		self.waitQueue = OrderedDict()
-		self.cancel = False
-		self.num = 5
-		if 'num' in kwargs:
-			self.num = kwargs['num']
-		self.workQueue = {}
-		self.isRun = False
-		self.lock = RLock()
-
-	def finish(self, name):
-		try:
-			del self.workQueue[name]
-		except KeyError:
-			pass
-		print name
-		if self.isRun:
-			self.startTask()
+class ThreadManager(TaskManager):
+	'''
+	进程管理
+	num: 同时任务数，默认为5
+	'''
+	def __init__(self, num = 5):
+		self._waitQueue = OrderedDict()
+		self._cancel = False
+		self._workQueue = {}
+		self._isRun = False
+		self._lock = RLock()
+		self._num = num
+		self._isFinish = False
 
 	def start(self):
 		'''
-		Start all tasks.
+		开始服务，可无任务状态开始
 		'''
-		self.isRun = True
-		self.startTask()
+		self._isRun = True
+		self._isFinish = False
+		self._startTask()
 
-	def hold(self):
+	def resume(self):
 		'''
-		No new tasks are pending.
+		恢复服务
 		'''
-		self.isRun = False
+		self.start()
 
-	def wait(self, **kwargs):
+	def addTask(self, func, name = None, timeout = None, exc_timeout = 0, callback = None, daemonic = False, args = ()):
 		'''
-		Waiting for all tasks.
-		name: Waiting for the name of the task.
+		添加任务
+		func: 任务方法
+		name: 任务id，默认则随机生成
+		timeout: join超时时间
+		exc_timeout: 任务执行超时时间
+		callback: 回调方法
+		daemonic: 是否守护进程
+		args: 任务方法所需参数
 		'''
-		name = kwargs.get('name', None)
-		if name is None:
-			while len(self.workQueue) > 0:
-				for t in self.workQueue.values():
-					t.join(t.timeout)
-					self.finish(t.name)
-					break
-		else:
-			while True:
-				try:
-					t = self.workQueue[name]
-					t.join(t.timeout)
-					self.finish(t.name)
-					break
-				except KeyError:
-					if name in self.waitQueue.keys() + self.workQueue.keys():
-						continue
-					else:
-						break
-
-	def dismiss(self, **kwargs):
-		'''
-		Dismiss all the not starting tasks.
-		name: Dismiss for the name of the task.
-		return Dismiss result.
-		'''
-		name = kwargs.get('name', None)
-		if name is None:
-			self.waitQueue.clear()
-			return True
-		else:
-			try:
-				del self.waitQueue[name]
-				return True
-			except KeyError:
-				return False
-			return False
-
-	def addTask(self, func, args = (), **kwargs):
-		'''
-		add one task to queue.
-		kwargs: callback; timeout; exc_timeout; daemonic;
-		return task name.
-		'''
-		name = kwargs.get('name', None)
-		# kwargs['finish'] = self.finish
+		if self._isFinish:
+			raise CloseException('')
 		if name is None:
 			name = ''.join(random.sample(words, 5)) + '_' + str(time.time())
-		self.waitQueue[name] = (func, args, kwargs)
-		if self.isRun:
-			self.startTask()
+		self._waitQueue[name] = {'func': func, 'timeout': timeout, 'exc_timeout': exc_timeout, 'callback': callback, 'daemonic': daemonic, 'args': args}
+		if self._isRun:
+			self._startTask()
 		return name
 
-	def startTask(self):
-		self.lock.acquire()
-		while len(self.workQueue) < self.num and len(self.waitQueue) > 0:
-			item = self.waitQueue.popitem(0)
-			daemonic = item[1][2].get('daemonic', False)
-			t = TaskThread(item[1][0], self.finish, *item[1][1], **item[1][2])
-			t.name = item[0]
-			t.setDaemon(daemonic)
-			self.workQueue[t.name] = t
+	def _startTask(self):
+		# self._lock.acquire()
+		while len(self._workQueue) < self._num and len(self._waitQueue) > 0:
+			itemName, itemData = self._waitQueue.popitem(0)
+			t = TaskThread(func = itemData['func'], finish = self._finish, timeout = itemData['timeout'], exc_timeout = itemData['exc_timeout'], callback = itemData['callback'], args = itemData['args'])
+			t.name = itemName
+			t.setDaemon(itemData['daemonic'])
+			self._workQueue[t.name] = t
 			t.start()
-		self.lock.release()
+		# self._lock.release()
