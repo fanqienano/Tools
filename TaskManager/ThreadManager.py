@@ -98,17 +98,14 @@ class ThreadManager(TaskManager):
 			raise CloseException('')
 		if name is None:
 			name = ''.join(random.sample(words, 5)) + '_' + str(time.time())
-		self._waitQueue[name] = {'func': func, 'timeout': timeout, 'exc_timeout': exc_timeout, 'callback': callback, 'daemonic': daemonic, 'args': args}
+		t = TaskThread(func = func, finish = self._finish, timeout = timeout, exc_timeout = exc_timeout, callback = callback, args = args)
+		t.name = name
+		t.setDaemon(daemonic)
+		self._waitQueue[name] = t
 		if self._isRun:
 			self._startTask()
-		return name
+		return t
 
 	@threadLock
 	def _startTask(self):
-		while len(self._workQueue) < self._num and len(self._waitQueue) > 0:
-			itemName, itemData = self._waitQueue.popitem(0)
-			t = TaskThread(func = itemData['func'], finish = self._finish, timeout = itemData['timeout'], exc_timeout = itemData['exc_timeout'], callback = itemData['callback'], args = itemData['args'])
-			t.name = itemName
-			t.setDaemon(itemData['daemonic'])
-			self._workQueue[t.name] = t
-			t.start()
+		super(ThreadManager, self)._startTask()

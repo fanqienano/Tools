@@ -12,6 +12,7 @@ import signal
 from TaskManager import TaskManager
 from TaskManager import processLock
 
+from TaskException import TimeoutException
 from TaskException import CloseException
 from TaskException import TaskException
 
@@ -53,7 +54,7 @@ class TaskProcess(Process):
 			raise error
 
 	def exceptionHandler(self, signum, frame):
-		raise AssertionError
+		raise TimeoutException
 
 	def finish(self, msg):
 		self.childConn.send(msg)
@@ -135,17 +136,14 @@ class ProcessManager(TaskManager):
 			raise CloseException()
 		if name is None:
 			name = ''.join(random.sample(words, 5)) + '_' + str(time.time())
-		self._waitQueue[name] = {'func': func, 'timeout': timeout, 'exc_timeout': exc_timeout, 'callback': callback, 'daemonic': daemonic, 'args': args}
+		t = TaskProcess(func = func, childConn = self._childConn, timeout = timeout, exc_timeout = exc_timeout, callback = callback, args = args)
+		t.name = name
+		t.daemon = daemonic
+		self._waitQueue[name] = t
 		if self._isRun:
 			self._startTask()
-		return name
+		return t
 
 	@processLock
 	def _startTask(self):
-		while len(self._workQueue) < self._num and len(self._waitQueue) > 0:
-			itemName, itemData = self._waitQueue.popitem(0)
-			t = TaskProcess(func = itemData['func'], childConn = self._childConn, timeout = itemData['timeout'], exc_timeout = itemData['exc_timeout'], callback = itemData['callback'], args = itemData['args'])
-			t.name = itemName
-			t.daemon = itemData['daemonic']
-			self._workQueue[t.name] = t
-			t.start()
+		super(ProcessManager, self)._startTask()

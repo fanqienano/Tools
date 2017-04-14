@@ -151,7 +151,10 @@ class TaskManager(object):
 		pass
 
 	def _startTask(self):
-		pass
+		while len(self._workQueue) < self._num and len(self._waitQueue) > 0:
+			name, task = self._waitQueue.popitem(0)
+			self._workQueue[name] = task
+			task.start()
 
 	def getStatus(self, name):
 		'''
