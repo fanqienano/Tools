@@ -12,7 +12,8 @@ import json
 # 		super(ClassName, self).__init__()
 # 		self.arg = arg
 
-pProtocol = re.compile(r'^head:(\S+?):(\d+?):(.+?):end$')
+pProtocolHead = re.compile(r'^head:(\S+?):(\d+?):(.+?):end$')
+pProtocolFinish = re.compile(r'^head:(\S+?):(\d+?):(.+?):finish$')
 
 class Protocol(object):
 	def __init__(self, pId = '', size = 0, data = '', finish = False):
@@ -31,7 +32,7 @@ class Listener(Thread):
 
 	'''head:3:{'aaa': 1}:end'''
 	def analysis(self, data):
-		m = pProtocol.search(data)
+		m = pProtocolHead.search(data)
 		if m is not None:
 			pId = m.group(1)
 			size = int(m.group(2))
@@ -41,6 +42,12 @@ class Listener(Thread):
 				self.dataDict[pId] = p
 			else:
 				self.dataDict[pId] = Protocol(pId = pId, size = size, data = self.dataDict[pId].data + data)
+		else:
+			m = pProtocolFinish.search(data)
+			if m is not None:
+				pId = m.group(1)
+				size = int(m.group(2))
+				data = m.group(3)
 				if size == len(self.dataDict[pId].data):
 					self.dataDict[pId].finish = True
 					ret = self.dataDict[pId]
