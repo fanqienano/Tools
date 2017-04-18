@@ -12,15 +12,15 @@ import json
 # 		super(ClassName, self).__init__()
 # 		self.arg = arg
 
-pProtocolHead = re.compile(r'^head:(\S+?):(\d+?):(.+?):end$')
-pProtocolFinish = re.compile(r'^head:(\S+?):(\d+?):(.+?):finish$')
+pProtocol = re.compile(r'^head:(\w+?):(\d+?)/(\d+?):(\d+?):(.+?):end$')
 
 class Protocol(object):
-	def __init__(self, pId = '', size = 0, data = '', finish = False):
+	def __init__(self, pId = '', sId = 0, sNum = 0, size = 0, data = ''):
 		self.pId = pId
+		self.sId = sId
+		self.sNum = sNum
 		self.size = size
 		self.data = data
-		self.finish = finish
 
 class Listener(Thread):
 	def __init__(self, connection, address, bufferSize = 1024):
@@ -30,30 +30,28 @@ class Listener(Thread):
 		self.bufferSize = bufferSize
 		self.dataDict = dict()
 
-	'''head:3:{'aaa': 1}:end'''
+	'''head:aaa:1/10:3:{'aaa': 1}:end'''
 	def analysis(self, data):
-		m = pProtocolHead.search(data)
+		m = pProtocol.search(data)
 		if m is not None:
 			pId = m.group(1)
-			size = int(m.group(2))
-			data = m.group(3)
-			p = Protocol(pId = pId, size = size, data = data)
+			sId = int(m.group(2))
+			sNum = int(m.group(3))
+			size = int(m.group(4))
+			data = m.group(5)
+			p = Protocol(pId = pId, sId = sId, sNum = sNum, size = size, data = data)
 			if pId not in self.dataDict:
-				self.dataDict[pId] = p
-			else:
-				self.dataDict[pId] = Protocol(pId = pId, size = size, data = self.dataDict[pId].data + data)
-		else:
-			m = pProtocolFinish.search(data)
-			if m is not None:
-				pId = m.group(1)
-				size = int(m.group(2))
-				data = m.group(3)
-				if size == len(self.dataDict[pId].data):
-					self.dataDict[pId].finish = True
-					ret = self.dataDict[pId]
+				self.dataDict[pId] = dict()
+			self.dataDict[pId][sId] = p
+			if len(self.dataDict[pId]) == sNum:
+				retP = Protocol(pId = pId, sId = sId, sNum = sNum, size = size)
+				items = sorted(self.dataDict[pId].items(), key = lambda x: x[0])
+				for i, d in items:
+					retP.data = retP.data + d.data
+				if size == len(retP.data):
 					del self.dataDict[pId]
-					ret.data = json.loads(ret.data)
-					return ret
+					retP.data = json.loads(retP.data)
+					return retP
 		return None
 
 	def run(self):
