@@ -4,10 +4,14 @@
 from collections import OrderedDict
 from threading import RLock
 from multiprocessing import Lock
+import time
+import random
 
 tLock = RLock()
 
 pLock = Lock()
+
+words = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
 
 def threadLock(func):
 	def _Lock(*args, **kwargs):
@@ -168,3 +172,6 @@ class TaskManager(object):
 		if name in self._workQueue.keys():
 			return 1
 		return 2
+
+	def getName(self):
+		return ''.join(random.sample(words, 5)) + '_' + str(time.time())

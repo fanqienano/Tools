@@ -15,8 +15,6 @@ from TaskException import TimeoutException
 from TaskException import CloseException
 from TaskException import TaskException
 
-words = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-
 class TaskThread(Thread):
 	'''
 	任务进程
@@ -97,7 +95,7 @@ class ThreadManager(TaskManager):
 		if self._isFinish:
 			raise CloseException('')
 		if name is None:
-			name = ''.join(random.sample(words, 5)) + '_' + str(time.time())
+			name = self.getName()
 		t = TaskThread(func = func, finish = self._finish, timeout = timeout, exc_timeout = exc_timeout, callback = callback, args = args)
 		t.name = name
 		t.setDaemon(daemonic)

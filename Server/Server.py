@@ -6,21 +6,18 @@ from threading import Thread
 import re
 import json
 
-# class protocol(object):
-# 	"""docstring for ClassName"""
-# 	def __init__(self, arg):
-# 		super(ClassName, self).__init__()
-# 		self.arg = arg
+from DataUtils import pProtocol
+from DataUtils import Protocol
 
-pProtocol = re.compile(r'^head:(\w+?):(\d+?)/(\d+?):(\d+?):(.+?):end$')
+# pProtocol = re.compile(r'^head:(\w+?):(\d+?)/(\d+?):(\d+?):(.+?):end$')
 
-class Protocol(object):
-	def __init__(self, pId = '', sId = 0, sNum = 0, size = 0, data = ''):
-		self.pId = pId
-		self.sId = sId
-		self.sNum = sNum
-		self.size = size
-		self.data = data
+# class Protocol(object):
+# 	def __init__(self, pId = '', sId = 0, sNum = 0, size = 0, data = ''):
+# 		self.pId = pId
+# 		self.sId = sId
+# 		self.sNum = sNum
+# 		self.size = size
+# 		self.data = data
 
 class Listener(Thread):
 	def __init__(self, connection, address, bufferSize = 1024):
@@ -35,16 +32,17 @@ class Listener(Thread):
 		m = pProtocol.search(data)
 		if m is not None:
 			pId = m.group(1)
-			sId = int(m.group(2))
-			sNum = int(m.group(3))
-			size = int(m.group(4))
-			data = m.group(5)
-			p = Protocol(pId = pId, sId = sId, sNum = sNum, size = size, data = data)
+			dataType = m.group(2)
+			sId = int(m.group(3))
+			sNum = int(m.group(4))
+			size = int(m.group(5))
+			data = m.group(6)
+			p = Protocol(pId = pId, sId = sId, sNum = sNum, size = size, data = data, dataType = dataType)
 			if pId not in self.dataDict:
 				self.dataDict[pId] = dict()
 			self.dataDict[pId][sId] = p
 			if len(self.dataDict[pId]) == sNum:
-				retP = Protocol(pId = pId, sId = sId, sNum = sNum, size = size)
+				retP = Protocol(pId = pId, sId = sId, sNum = sNum, size = size, dataType = dataType)
 				items = sorted(self.dataDict[pId].items(), key = lambda x: x[0])
 				for i, d in items:
 					retP.data = retP.data + d.data
