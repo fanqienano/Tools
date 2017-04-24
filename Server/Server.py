@@ -20,12 +20,13 @@ from DataUtils import Protocol
 # 		self.data = data
 
 class Listener(Thread):
-	def __init__(self, connection, address, bufferSize = 1024):
+	def __init__(self, connection, address, callback, bufferSize = 1024):
 		super(Listener, self).__init__()
 		self.connection = connection
 		self.address = address
 		self.bufferSize = bufferSize
 		self.dataDict = dict()
+		self.callback = callback
 
 	'''head:aaa:1/10:3:{'aaa': 1}:end'''
 	def analysis(self, data):
@@ -49,15 +50,23 @@ class Listener(Thread):
 				if size == len(retP.data):
 					del self.dataDict[pId]
 					retP.data = json.loads(retP.data)
-					return retP
-		return None
+					return retP, 'ok'
+			return None, 'ok'
+		else:
+			return None, 'error'
 
 	def run(self):
 		while True:
 			buf = self.connection.recv(self.bufferSize)
-			p = self.analysis(buf)
+			p, ret = self.analysis(buf)
+			self.connection.send(ret)
 			if p is not None:
-				print p.data
+				# f = open('%s.txt'%p.pId, 'w')
+				# f.write(p.data)
+				# f.close()
+				# print 'over'
+				self.callback(self)
+				break
 		self.connection.close()
 
 class Server(object):
@@ -70,7 +79,7 @@ class Server(object):
 		self.addressDict = dict()
 
 		self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		self.socket.bind(('localhost', 8001))
+		self.socket.bind(('localhost', 8008))
 		self.socket.listen(self.num)
 
 	def close(self):
@@ -86,12 +95,15 @@ class Server(object):
 		if address in self.addressDict:
 			del self.addressDict[address]
 
+	def callback(self, obj):
+		pass
+
 	def run(self):
 		while not self.close:
 			connection, address = self.socket.accept()
 			connection.settimeout(self.timeout)
 			if address not in self.addressDict:
-				self.addressDict[address] = Listener(connection, address)
+				self.addressDict[address] = Listener(connection, address, self.callback)
 				self.addressDict[address].start()
 			print self.addressDict
 			# self.listen(connection)

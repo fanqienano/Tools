@@ -3,7 +3,7 @@
 
 import re
 
-pProtocol = re.compile(r'^head:(\w+?):(\w+?):(\d+?)/(\d+?):(\d+?):(.+?):end$')
+pProtocol = re.compile(r'^head:(\w+?):(\w+?):(\d+?)/(\d+?):(\d+?):([\s|\S]+?):end$')
 
 class Protocol(object):
 	def __init__(self, pId = '', sId = 0, sNum = 0, size = 0, data = '', dataType = 'text'):

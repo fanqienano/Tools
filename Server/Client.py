@@ -1,35 +1,18 @@
 #!/usr/bin/python
 #coding=UTF-8
 
-# import time
-
-# if __name__ == '__main__':
-# 	import socket
-# 	sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-# 	sock.connect(('localhost', 8001))
-# 	import time
-# 	time.sleep(2)
-# 	for i in range(1000):
-# 		sock.send(str(i))
-# 		time.sleep(1)
-# 	# print sock.recv(1024)
-# 	sock.close()
-
 import socket
 import json
 import time
 import random
 from threading import Thread
-# from decimal import Decimal
+import codecs
 
 from DataUtils import Protocol
 
 words = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
 
-# Message = 'head:aaa:0001/0010:3:{'aaa': 1}:end'
-
 class Sender(Thread):
-	"""docstring for Sender"""
 	def __init__(self, host, port, dataObj, dataType):
 		super(Sender, self).__init__()
 		self.amount = 512
@@ -42,15 +25,15 @@ class Sender(Thread):
 	def getPId(self):
 		return ''.join(random.sample(words, 5)) + '_' + str(int(time.time() * 1000))
 
-	def makeMessage(self, obj, dataType):
+	def makeMessage(self, data, dataType):
+		pId = self.getPId()
 		messageList = list()
-		data = json.dumps(object2dict(obj))
 		size = len(data)
 		sNum = (size / self.amount) + 1
 		for i in xrange(0, sNum):
 			s = i * self.amount
 			e = (i + 1) * self.amount
-			p = Protocol(pId = self.getPId(), sId = i + 1, sNum = sNum, size = size, data = data[s:e], dataType = dataType)
+			p = Protocol(pId = pId, sId = i + 1, sNum = sNum, size = size, data = data[s:e], dataType = dataType)
 			messageList.append(str(p))
 		return messageList
 
@@ -58,7 +41,11 @@ class Sender(Thread):
 		messageList = self.makeMessage(self.dataObj, self.dataType)
 		self.socket.connect((self.host, self.port))
 		for msg in messageList:
-			self.socket.send
+			while True:
+				self.socket.send(msg)
+				ret = self.socket.recv(1024)
+				if ret == 'ok':
+					break
 		self.socket.close()
 
 def object2dict(obj):
