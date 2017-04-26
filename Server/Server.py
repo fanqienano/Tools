@@ -5,30 +5,80 @@ import socket
 from threading import Thread
 import re
 import json
+import time
 
 from DataUtils import pProtocol
 from DataUtils import Protocol
 
-# pProtocol = re.compile(r'^head:(\w+?):(\d+?)/(\d+?):(\d+?):(.+?):end$')
-
-# class Protocol(object):
-# 	def __init__(self, pId = '', sId = 0, sNum = 0, size = 0, data = ''):
-# 		self.pId = pId
-# 		self.sId = sId
-# 		self.sNum = sNum
-# 		self.size = size
-# 		self.data = data
-
 class Listener(Thread):
-	def __init__(self, connection, address, callback, bufferSize = 1024):
+	def __init__(self, connection, address, analysis, callback, bufferSize = 1024):
 		super(Listener, self).__init__()
 		self.connection = connection
 		self.address = address
 		self.bufferSize = bufferSize
 		self.dataDict = dict()
 		self.callback = callback
+		self.analysis = analysis
 
-	'''head:aaa:1/10:3:{'aaa': 1}:end'''
+	def run(self):
+		pass
+
+class LongListener(Listener):
+	# def __init__(self, *args, **kwargs):
+	# 	super(LongListener, self).__init__(*args, **kwargs)
+
+	def close(self):
+		self.connection.close()
+
+	def run(self):
+		while True:
+			content = ''
+			while True:
+				buf = self.connection.recv(self.bufferSize)
+				if buf == '':
+					break
+				content = content + buf
+			if content != '':
+				p, ret = self.analysis(content)
+				self.connection.send(ret)
+				if p is not None:
+					self.callback(self, p)
+			else:
+				time.sleep(1)
+		# self.connection.close()
+
+class ShortListener(Listener):
+	# def __init__(self, *args, **kwargs):
+	# 	super(LongListener, self).__init__(*args, **kwargs)
+
+	def run(self):
+		content = ''
+		while True:
+			buf = self.connection.recv(self.bufferSize)
+			if buf == '':
+				break
+			content = content + buf
+		p, ret = self.analysis(content)
+		self.connection.send(ret)
+		if p is not None:
+			self.callback(self, p)
+		self.connection.close()
+
+class Server(object):
+	def __init__(self, host = 'localhost', port = 8000, socketType = 'long', **kwargs):
+		self.socketType = socketType
+		self.num = kwargs.get('num', 100)
+		self.timeout = kwargs.get('timeout', 60)
+		self.bufferSize = kwargs.get('bufferSize', 1024)
+		self._close = False
+		self.addressDict = dict()
+		self.dataDict = dict()
+
+		self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		self.socket.bind((host, port))
+		print host, port
+		self.socket.listen(self.num)
+
 	def analysis(self, data):
 		m = pProtocol.search(data)
 		if m is not None:
@@ -48,42 +98,17 @@ class Listener(Thread):
 				for i, d in items:
 					retP.data = retP.data + d.data
 				if size == len(retP.data):
-					del self.dataDict[pId]
-					retP.data = json.loads(retP.data)
+					try:
+						del self.dataDict[pId]
+					except:
+						pass
 					return retP, 'ok'
 			return None, 'ok'
 		else:
 			return None, 'error'
 
-	def run(self):
-		while True:
-			buf = self.connection.recv(self.bufferSize)
-			p, ret = self.analysis(buf)
-			self.connection.send(ret)
-			if p is not None:
-				# f = open('%s.txt'%p.pId, 'w')
-				# f.write(p.data)
-				# f.close()
-				# print 'over'
-				self.callback(self)
-				break
-		self.connection.close()
-
-class Server(object):
-	def __init__(self, connectionType = 'long'):
-		self.connectionType = connectionType
-		self.num = 10
-		self.timeout = 10
-		self.bufferSize = 1024
-		self.close = False
-		self.addressDict = dict()
-
-		self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		self.socket.bind(('localhost', 8008))
-		self.socket.listen(self.num)
-
 	def close(self):
-		self.close = True
+		self._close = True
 
 	def setTimeout(self, timeout = 10):
 		self.timeout = timeout
@@ -95,17 +120,23 @@ class Server(object):
 		if address in self.addressDict:
 			del self.addressDict[address]
 
-	def callback(self, obj):
-		pass
+	def callback(self, obj, prot):
+		if prot.dataType == 'json':
+			f = open('%s.txt'%prot.pId, 'w')
+			f.write(json.dumps(json.loads(prot.data), indent = 4))
+			f.close()
 
 	def run(self):
-		while not self.close:
+		while not self._close:
 			connection, address = self.socket.accept()
 			connection.settimeout(self.timeout)
-			if address not in self.addressDict:
-				self.addressDict[address] = Listener(connection, address, self.callback)
-				self.addressDict[address].start()
-			print self.addressDict
+			if self.socketType == 'long':
+				_class = LongListener
+			else:
+				_class = ShortListener
+			_class(connection = connection, address = address, analysis = self.analysis, callback = self.callback).start()
+
+
 			# self.listen(connection)
 
 			# try:
