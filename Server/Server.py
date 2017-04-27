@@ -8,20 +8,74 @@ import json
 import time
 
 from DataUtils import pProtocol
+from DataUtils import pProtocolHead
 from DataUtils import Protocol
+from DataUtils import analysis
+from DataUtils import HeadSize
+from DataUtils import makeHead
 
 class Listener(Thread):
-	def __init__(self, connection, address, analysis, callback, bufferSize = 1024):
+	def __init__(self, connection, address, callback, handleDict):
 		super(Listener, self).__init__()
 		self.connection = connection
 		self.address = address
-		self.bufferSize = bufferSize
-		self.dataDict = dict()
+		self.headBufferSize = HeadSize
+		self.bufferSize = 1024
+		# self.dataDict = dict()
 		self.callback = callback
-		self.analysis = analysis
+		self.handleDict = handleDict
+		# self.connection.setblocking(0)
 
 	def run(self):
 		pass
+
+	def runPart(self):
+		content = ''
+		pId = None
+		size = 0
+		bufferSize = self.headBufferSize
+		retP = None
+		ret = ''
+		handle = None
+		while True:
+			buf = self.connection.recv(bufferSize)
+			if len(buf) > 0:
+				if pId is None and size == 0:
+					m = pProtocolHead.match(buf)
+					if m is not None:
+						pId = m.group(1)
+						size = int(m.group(2))
+						path = m.group(3).strip()
+						bufferSize = self.bufferSize
+						if path in self.handleDict:
+							handle = self.handleDict[path]
+						else:
+							raise AssertionError
+				else:
+					content = content + buf
+					if len(content) == size:
+						retP, ret = analysis(content)
+						if ret == 'ok' and retP is not None and retP.pId == pId:
+							break
+						else:
+							content = ''
+							pId = None
+							size = 0
+							bufferSize = self.headBufferSize
+							retP = None
+							ret = ''
+		print ret, retP, handle
+		if ret == 'ok' and retP is not None and handle is not None:
+			result = handle(retP.data)
+			result = self.makeResult(retP.pId, result)
+			head = makeHead(retP.pId, result, ' ')
+			self.connection.send(head + result)
+			self.callback(self, retP)
+
+	def makeResult(self, pId, result, dataType = 'text'):
+		size = len(result)
+		p = Protocol(pId = pId, sId = 1, sNum = 1, size = size, data = result, dataType = dataType)
+		return str(p)
 
 class LongListener(Listener):
 	# def __init__(self, *args, **kwargs):
@@ -32,19 +86,7 @@ class LongListener(Listener):
 
 	def run(self):
 		while True:
-			content = ''
-			while True:
-				buf = self.connection.recv(self.bufferSize)
-				if buf == '':
-					break
-				content = content + buf
-			if content != '':
-				p, ret = self.analysis(content)
-				self.connection.send(ret)
-				if p is not None:
-					self.callback(self, p)
-			else:
-				time.sleep(1)
+			self.runPart()
 		# self.connection.close()
 
 class ShortListener(Listener):
@@ -52,16 +94,7 @@ class ShortListener(Listener):
 	# 	super(LongListener, self).__init__(*args, **kwargs)
 
 	def run(self):
-		content = ''
-		while True:
-			buf = self.connection.recv(self.bufferSize)
-			if buf == '':
-				break
-			content = content + buf
-		p, ret = self.analysis(content)
-		self.connection.send(ret)
-		if p is not None:
-			self.callback(self, p)
+		self.runPart()
 		self.connection.close()
 
 class Server(object):
@@ -72,40 +105,15 @@ class Server(object):
 		self.bufferSize = kwargs.get('bufferSize', 1024)
 		self._close = False
 		self.addressDict = dict()
-		self.dataDict = dict()
+		self._handleDict = dict()
 
 		self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		self.socket.bind((host, port))
 		print host, port
 		self.socket.listen(self.num)
 
-	def analysis(self, data):
-		m = pProtocol.search(data)
-		if m is not None:
-			pId = m.group(1)
-			dataType = m.group(2)
-			sId = int(m.group(3))
-			sNum = int(m.group(4))
-			size = int(m.group(5))
-			data = m.group(6)
-			p = Protocol(pId = pId, sId = sId, sNum = sNum, size = size, data = data, dataType = dataType)
-			if pId not in self.dataDict:
-				self.dataDict[pId] = dict()
-			self.dataDict[pId][sId] = p
-			if len(self.dataDict[pId]) == sNum:
-				retP = Protocol(pId = pId, sId = sId, sNum = sNum, size = size, dataType = dataType)
-				items = sorted(self.dataDict[pId].items(), key = lambda x: x[0])
-				for i, d in items:
-					retP.data = retP.data + d.data
-				if size == len(retP.data):
-					try:
-						del self.dataDict[pId]
-					except:
-						pass
-					return retP, 'ok'
-			return None, 'ok'
-		else:
-			return None, 'error'
+	def setHandle(self, handleDict):
+		self._handleDict = handleDict
 
 	def close(self):
 		self._close = True
@@ -134,7 +142,7 @@ class Server(object):
 				_class = LongListener
 			else:
 				_class = ShortListener
-			_class(connection = connection, address = address, analysis = self.analysis, callback = self.callback).start()
+			_class(connection = connection, address = address, callback = self.callback, handleDict = self._handleDict).start()
 
 
 			# self.listen(connection)
@@ -151,9 +159,6 @@ class Server(object):
 			# except:
 			# 	print 
 		# connection.close()
-
-if __name__ == '__main__':
-	Server().run()
 
 
 # import socket
