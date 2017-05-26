@@ -1,6 +1,14 @@
 #!/usr/bin/python
 #coding=UTF-8
 
+def singleton(cls):
+	instances = {}
+	def _singleton(name = '', *args, **kwargs):
+		if name not in instances:
+			instances[name] = cls(name)
+		return instances[name]
+	return _singleton
+
 class Event(object):
 	'''
 	自定义事件
@@ -11,11 +19,13 @@ class Event(object):
 		self.name = name
 		self.data = data
 
+@singleton
 class EventManager(object):
 	'''
 	事件管理
+	name: 事件管理名字
 	'''
-	def __init__(self):
+	def __init__(self, name = ''):
 		self.eventDict = dict()
 
 	def hasListener(self, event, listener):

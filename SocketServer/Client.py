@@ -142,5 +142,5 @@ class ShortSender(Sender):
 if __name__ == '__main__':
 	data = '{"test": 112233}'
 	data = '[' + ','.join(data) + ']'
-	ret = ShortSender('localhost', 8099).send('test', data, 'text')
+	ret = ShortSender('localhost', 8000).send('test', data, 'text')
 	print ret
