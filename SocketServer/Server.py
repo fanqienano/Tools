@@ -13,13 +13,14 @@ from DataUtils import Protocol
 from DataUtils import analysis
 from DataUtils import HeadSize
 from DataUtils import makeHead
+from DataUtils import encryption
+from DataUtils import decryption
 
 class Listener(Thread):
 	def __init__(self, connection, address, callback, handleDict):
 		super(Listener, self).__init__()
 		self.connection = connection
 		self.address = address
-		self.headBufferSize = HeadSize
 		self.bufferSize = 1024
 		# self.dataDict = dict()
 		self.callback = callback
@@ -33,7 +34,7 @@ class Listener(Thread):
 		content = ''
 		pId = None
 		size = 0
-		bufferSize = self.headBufferSize
+		bufferSize = HeadSize
 		retP = None
 		ret = ''
 		handle = None
@@ -41,6 +42,7 @@ class Listener(Thread):
 			buf = self.connection.recv(bufferSize)
 			if len(buf) > 0:
 				if pId is None and size == 0:
+					buf = decryption(buf)
 					m = pProtocolHead.match(buf)
 					if m is not None:
 						pId = m.group(1)
@@ -54,6 +56,7 @@ class Listener(Thread):
 				else:
 					content = content + buf
 					if len(content) == size:
+						content = decryption(content)
 						retP, ret = analysis(content)
 						if ret == 'ok' and retP is not None and retP.pId == pId:
 							break
@@ -61,15 +64,16 @@ class Listener(Thread):
 							content = ''
 							pId = None
 							size = 0
-							bufferSize = self.headBufferSize
+							bufferSize = HeadSize
 							retP = None
 							ret = ''
-		print ret, retP, handle
 		if ret == 'ok' and retP is not None and handle is not None:
 			result = handle(retP.data)
-			result = self.makeResult(retP.pId, result)
-			head = makeHead(retP.pId, result, ' ')
-			self.connection.send(head + result)
+			result = str(self.makeResult(retP.pId, result))
+			result = encryption(result)
+			head = makeHead(retP.pId, result, 'return')
+			message = encryption(head) + result
+			self.connection.send(message)
 			self.callback(self, retP)
 
 	def makeResult(self, pId, result, dataType = 'text'):
@@ -98,7 +102,7 @@ class ShortListener(Listener):
 		self.connection.close()
 
 class Server(object):
-	def __init__(self, host = 'localhost', port = 8000, socketType = 'long', **kwargs):
+	def __init__(self, host = 'localhost', port = 8000, socketType = 'short', **kwargs):
 		self.socketType = socketType
 		self.num = kwargs.get('num', 100)
 		self.timeout = kwargs.get('timeout', 60)
@@ -138,10 +142,10 @@ class Server(object):
 		while not self._close:
 			connection, address = self.socket.accept()
 			connection.settimeout(self.timeout)
-			if self.socketType == 'long':
-				_class = LongListener
-			else:
+			if self.socketType == 'short':
 				_class = ShortListener
+			else:
+				_class = LongListener
 			_class(connection = connection, address = address, callback = self.callback, handleDict = self._handleDict).start()
 
 

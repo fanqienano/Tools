@@ -14,6 +14,8 @@ from DataUtils import pProtocolHead
 from DataUtils import analysis
 from DataUtils import HeadSize
 from DataUtils import makeHead
+from DataUtils import encryption
+from DataUtils import decryption
 
 words = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
 
@@ -85,14 +87,16 @@ class Sender(object):
 		bufferSize = self.headBufferSize
 		size = 0
 		pId, msg = self.makeMessage(data, dataType)
+		msg = encryption(msg)
 		head = makeHead(pId, msg, path)
-		print head
-		self.socket.send(head + msg)
+		message = encryption(head) + msg
+		self.socket.send(message)
 		try:
 			while True:
 				ret = self.socket.recv(bufferSize)
 				if len(ret) > 0:
 					if len(result) == 0 and size == 0:
+						ret = decryption(ret)
 						m = pProtocolHead.match(ret)
 						if m is not None:
 							if pId == m.group(1):
@@ -101,6 +105,7 @@ class Sender(object):
 					else:
 						result = result + ret
 						if len(result) == size:
+							result = decryption(result)
 							retP, msg = analysis(result)
 							if retP is not None and retP.pId == pId and msg == 'ok':
 								break
