@@ -21,11 +21,9 @@ class Listener(Thread):
 		super(Listener, self).__init__()
 		self.connection = connection
 		self.address = address
-		self.bufferSize = 1024
-		# self.dataDict = dict()
+		self.bufferSize = 4096
 		self.callback = callback
 		self.handleDict = handleDict
-		# self.connection.setblocking(0)
 
 	def run(self):
 		pass
@@ -75,6 +73,7 @@ class Listener(Thread):
 			message = encryption(head) + result
 			self.connection.send(message)
 			self.callback(self, retP)
+			return 'ok'
 
 	def makeResult(self, pId, result, dataType = 'text'):
 		size = len(result)
@@ -82,20 +81,33 @@ class Listener(Thread):
 		return str(p)
 
 class LongListener(Listener):
-	# def __init__(self, *args, **kwargs):
-	# 	super(LongListener, self).__init__(*args, **kwargs)
+
+	def __init__(self, *args, **kwargs):
+		super(LongListener, self).__init__(*args, **kwargs)
+		self.timeLeft = 60
+		self.finished = False
+		self.timer = Thread(target = self.countdown)
+		self.timer.start()
+
+	def countdown(self):
+		while not self.finished:
+			self.timeLeft = self.timeLeft - 1
+			if self.timeLeft <= 0:
+				self.close()
+			time.sleep(1)
 
 	def close(self):
-		self.connection.close()
+		print 'close connection'
+		self.finished = True
 
 	def run(self):
-		while True:
-			self.runPart()
-		# self.connection.close()
+		while not self.finished:
+			ret = self.runPart()
+			if ret is not None:
+				self.timeLeft = 60
+		self.connection.close()
 
 class ShortListener(Listener):
-	# def __init__(self, *args, **kwargs):
-	# 	super(LongListener, self).__init__(*args, **kwargs)
 
 	def run(self):
 		self.runPart()
@@ -146,6 +158,7 @@ class Server(object):
 				_class = ShortListener
 			else:
 				_class = LongListener
+			print address
 			_class(connection = connection, address = address, callback = self.callback, handleDict = self._handleDict).start()
 
 

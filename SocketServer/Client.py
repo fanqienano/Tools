@@ -143,9 +143,3 @@ class ShortSender(Sender):
 		result = super(ShortSender, self).send(*args, **kwargs)
 		self.socket.close()
 		return result
-
-if __name__ == '__main__':
-	data = '{"test": 112233}'
-	data = '[' + ','.join(data) + ']'
-	ret = ShortSender('localhost', 8000).send('test', data, 'text')
-	print ret
